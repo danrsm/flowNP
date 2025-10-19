@@ -1,0 +1,7 @@
+*__pycache__*
+*results*
+*evalsets*
+*datasets*
+# pixi environments
+.pixi/*
+!.pixi/config.toml
