@@ -7,17 +7,28 @@ import torch
 import numpy as np
 import time
 import matplotlib.pyplot as plt
-#import uncertainty_toolbox as uct
 from attrdictionary import AttrDict
 from tqdm import tqdm
-from copy import deepcopy
 import time
 
 from data.gp import *
-from utils.misc import load_module, eval_arg
+from utils.misc import load_module
 from utils.paths import results_path, evalsets_path
 from utils.log import get_logger, RunningAverage
 
+def eval_arg(arg):
+    # convert a string argument to int, float, bool, or str
+    if arg.lower() in ['true', 'false']:
+        return arg.lower() == 'true'
+    try:
+        return int(arg)
+    except ValueError:
+        pass
+    try:
+        return float(arg)
+    except ValueError:
+        pass
+    return arg
 
 def main():
     parser = argparse.ArgumentParser()
@@ -27,6 +38,7 @@ def main():
     parser.add_argument('--expname', type=str, default='default')
     parser.add_argument('--expid', type=str, default="0")
     parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--device', type=str, default=None, help='Device to use (cuda/cpu). If None, will use cuda if available.')
 
     # Data
     parser.add_argument('--max_num_points', type=int, default=50)
@@ -75,6 +87,11 @@ def main():
     
     args = parser.parse_args()
 
+    # Set device
+    if args.device is None:
+        args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Using device: {args.device}")
+
     if args.eval_kernel is None:
         args.eval_kernel = args.kernel
     if args.eval_obs_noise is None:
@@ -100,16 +117,13 @@ def main():
             key, value = arg.split('=')
             args.model_config[key] = eval_arg(value) # use eval to convert string to appropriate type
         
-    if args.model in ["ndp", 'gtgp', "np", "anp", "cnp", "canp", "bnp", "banp", "tnpd", "tnpa", "tnpnd", "fnp", "fnpj", "fnpd", "fnps"]:
-        model = model_cls(**args.model_config)
-    model.cuda()
+    model = model_cls(**args.model_config)
+    model.to(args.device)
 
     if args.mode == 'train':
         train(args, model)
     elif args.mode == 'eval':
         eval(args, model)
-    elif args.mode == 'eval_all_metrics':
-        eval_all_metrics(args, model)
     elif args.mode == 'plot':
         plot(args, model)
 
@@ -129,7 +143,8 @@ def train(args, model):
         gen_evalset(args)
 
     torch.manual_seed(args.train_seed)
-    torch.cuda.manual_seed(args.train_seed)
+    if args.device == 'cuda':
+        torch.cuda.manual_seed(args.train_seed)
 
     if args.kernel == 'rbf':
         kernel = RBFKernel()
@@ -141,14 +156,6 @@ def train(args, model):
         kernel = FixedMatern52Kernel()
     elif args.kernel == 'periodic':
         kernel = PeriodicKernel()
-    elif args.kernel == 'gpdf':
-        kernel = 'gpdf'
-    elif args.kernel == 'triangle':
-        kernel = 'triangle'
-    elif args.kernel == 'step':
-        kernel = 'step'
-    elif args.kernel == 'linear': # generate linear data, not really a kernel
-        kernel = None
     else:
         raise ValueError(f'Invalid kernel {args.kernel}')
 
@@ -184,26 +191,16 @@ def train(args, model):
         batch = sampler.sample(
             batch_size=args.train_batch_size,
             max_num_points=args.max_num_points,
-            device='cuda')
+            device=args.device)
         if args.obs_noise > 0.:
                 batch['y'] += torch.randn_like(batch['y'])*args.obs_noise
                 batch.yc = batch.y[:,:batch.xc.shape[-2]]
                 batch.yt = batch.y[:,batch.xc.shape[-2]:]
         
 
-        if args.model in ["np", "anp", "cnp", "canp", "bnp", "banp"]:
-            outs = model(batch, num_samples=args.train_num_samples)
-        else:
-            outs = model(batch)
-
-        outs.loss.backward()
+        outs = model(batch, num_samples=args.train_num_samples)
         
-        # # Check for NaN gradients
-        # if torch.isnan(outs.loss) or any(torch.isnan(p.grad).any() for p in model.parameters() if p.grad is not None):
-        #     print(f"Warning: NaN detected at step {step}, skipping update")
-        #     optimizer.zero_grad()
-        #     continue   
-        #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        outs.loss.backward()
         optimizer.step()
         scheduler.step()
 
@@ -273,10 +270,11 @@ def gen_evalset(args):
         batches.append(sampler.sample(
             batch_size=args.eval_batch_size,
             max_num_points=args.max_num_points,
-            device='cuda'))
+            device=args.device))
 
     torch.manual_seed(time.time())
-    torch.cuda.manual_seed(time.time())
+    if args.device == 'cuda':
+        torch.cuda.manual_seed(time.time())
 
     path, filename = get_eval_path(args)
     if not osp.isdir(path):
@@ -288,9 +286,9 @@ def eval(args, model, step=None):
     if args.mode == 'eval':
         if args.model != 'gtgp':
             if args.ckptfile:
-                ckpt = torch.load(args.ckptfile, map_location='cuda', weights_only=False)
+                ckpt = torch.load(args.ckptfile, map_location=args.device, weights_only=False)
             else:    
-                ckpt = torch.load(os.path.join(args.root, 'ckpt.tar'), map_location='cuda', weights_only=False)
+                ckpt = torch.load(os.path.join(args.root, 'ckpt.tar'), map_location=args.device, weights_only=False)
             model.load_state_dict(ckpt.model)
             if args.timesteps>0:
                 model.timesteps = args.timesteps
@@ -318,23 +316,22 @@ def eval(args, model, step=None):
 
     if args.mode == "eval":
         torch.manual_seed(args.eval_seed)
-        torch.cuda.manual_seed(args.eval_seed)
+        if args.device == 'cuda':
+            torch.cuda.manual_seed(args.eval_seed)
 
     ravg = RunningAverage()
     model.eval()
     with torch.no_grad():
         for batch in tqdm(eval_batches, ascii=True):
             for key, val in batch.items():
-                batch[key] = val.cuda()
+                batch[key] = val.to(args.device)
             if args.eval_obs_noise > 0.:
                 batch['y'] += torch.randn_like(batch['y'])*args.eval_obs_noise
                 batch.yc = batch.y[:,:batch.xc.shape[-2]]
                 batch.yt = batch.y[:,batch.xc.shape[-2]:]
         
-            if args.model in ["np", "anp", "bnp", "banp"]:
-                outs = model(batch, args.eval_num_samples)
-            else:
-                outs = model(batch)
+            outs = model(batch, args.eval_num_samples)
+            
             outs.n_ctx = batch.xc.shape[-2]
             outs.n_tar = batch.xt.shape[-2]
 
@@ -342,7 +339,8 @@ def eval(args, model, step=None):
                 ravg.update(key, val)
 
     torch.manual_seed(time.time())
-    torch.cuda.manual_seed(time.time())
+    if args.device == 'cuda':
+        torch.cuda.manual_seed(time.time())
 
     line += f'{args.expname}:{args.model}:{args.expid} {args.eval_kernel} '
     line += ravg.info()
@@ -372,36 +370,14 @@ def plot(args, model, batch=None, suffix=''):
     
         if args.eval_seed is not None:
             torch.manual_seed(args.eval_seed)
-            torch.cuda.manual_seed(args.eval_seed)
-
-        # kernel = RBFKernel() if args.pp is None else PeriodicKernel(p=args.pp)
-        # sampler = GPSampler(kernel)
-
-        # batch = sampler.sample(
-        #         batch_size=args.plot_batch_size,
-        #         max_num_points=args.max_num_points,
-        #         num_ctx=args.plot_num_ctx,
-        #         device='cuda')
+            if args.device == 'cuda':
+                torch.cuda.manual_seed(args.eval_seed)
 
     if args.mode == 'plot':
-        if args.model != 'gtgp':
-            if args.ckptfile:
-                ckpt = torch.load(args.ckptfile, map_location='cuda', weights_only=False)
-            else:    
-                ckpt = torch.load(os.path.join(args.root, 'ckpt.tar'), map_location='cuda', weights_only=False)
-            model.load_state_dict(ckpt.model)
-    
-        # ckpt = torch.load(os.path.join(args.root, 'ckpt.tar'))
-        # model.load_state_dict(ckpt.model)
         model.eval()
         os.makedirs(args.root, exist_ok=True)
-
-        # with torch.no_grad():
-        #     outs = model(batch, num_samples=args.eval_num_samples)
-        #     print(f'ctx_ll {outs.ctx_ll.item():.4f}, tar_ll {outs.tar_ll.item():.4f}')
-    
         
-    xp = torch.linspace(-2, 2, 200).cuda()
+    xp = torch.linspace(-2, 2, 200).to(args.device)
     with torch.no_grad():
         if type(batch) is list:
             mu = torch.zeros(args.plot_num_samples, args.plot_batch_size, xp.shape[0], 1)
@@ -409,10 +385,8 @@ def plot(args, model, batch=None, suffix=''):
             for b in range(args.plot_batch_size):
                 bb = b % len(batch)
                 bi = b // len(batch)
-                # start = time.time()
                 py = model.predict(batch[bb].xc[bi:bi+1], batch[bb].yc[bi:bi+1],
                         xp[None,:,None], num_samples=args.plot_num_samples)
-                # print(f'sampling time {time.time()-start:.3f} secs)')
                 mu[:, b:b+1], sigma[:, b:b+1] = py.mean, py.scale
             mu, sigma = mu.squeeze(0), sigma.squeeze(0)
         else:
@@ -473,89 +447,6 @@ def plot(args, model, batch=None, suffix=''):
     plt.show()
     if args.mode != 'plot':
         plt.close()
-
-def eval_all_metrics(args, model):
-    # eval a trained model on log-likelihood, rsme, calibration, and sharpness
-    ckpt = torch.load(os.path.join(args.root, 'ckpt.tar'), map_location='cuda', weights_only=False)
-    model.load_state_dict(ckpt.model)
-    if args.eval_logfile is None:
-        eval_logfile = f'eval_{args.eval_kernel}'
-        eval_logfile += f'_all_metrics'
-        eval_logfile += '.log'
-    else:
-        eval_logfile = args.eval_logfile
-    filename = os.path.join(args.root, eval_logfile)
-    logger = get_logger(filename, mode='w')
-
-    path, filename = get_eval_path(args)
-    if not osp.isfile(osp.join(path, filename)):
-        print('generating evaluation sets...')
-        gen_evalset(args)
-    eval_batches = torch.load(osp.join(path, filename), weights_only=False)
-
-    if args.mode == "eval_all_metrics":
-        torch.manual_seed(args.eval_seed)
-        torch.cuda.manual_seed(args.eval_seed)
-
-    model.eval()
-    with torch.no_grad():
-        ravgs = [RunningAverage() for _ in range(4)] # 4 types of metrics
-        for batch in tqdm(eval_batches, ascii=True):
-            for key, val in batch.items():
-                batch[key] = val.cuda()
-            if args.model in ["np", "anp", "cnp", "canp", "bnp", "banp"]:
-                outs = model.predict(batch.xc, batch.yc, batch.xt, num_samples=args.eval_num_samples)
-                ll = model(batch, num_samples=args.eval_num_samples)
-            elif args.model in ["tnpa", "tnpnd"]:
-                outs = model.predict(
-                    batch.xc, batch.yc, batch.xt,
-                    num_samples=args.eval_num_samples
-                )
-                ll = model(batch)
-            else:
-                outs = model.predict(batch.xc, batch.yc, batch.xt)
-                ll = model(batch)
-
-            mean, std = outs.loc, outs.scale
-
-            # shape: (num_samples, 1, num_points, 1)
-            if mean.dim() == 4:
-                # variance of samples (Law of Total Variance) - var(X) = E[var(X|Y)] + var(E[X|Y])
-                # E[var(X|Y)] : average variability within each samples
-                # var(E[X|Y]) : variability between samples
-                var = std.pow(2).mean(dim=0) + mean.pow(2).mean(dim=0) - mean.mean(dim=0).pow(2)
-                std = var.sqrt().squeeze(0)
-                # mean of samples (Law of Total Expectations) - E[E[X|Y]] = E[X]
-                mean = mean.mean(dim=0).squeeze(0)
-            
-            mean, std = mean.squeeze().cpu().numpy().flatten(), std.squeeze().cpu().numpy().flatten()
-            yt = batch.yt.squeeze().cpu().numpy().flatten()
-
-            acc = uct.metrics.get_all_accuracy_metrics(mean, yt, verbose=False)
-            calibration = uct.metrics.get_all_average_calibration(mean, std, yt, num_bins=100, verbose=False)
-            sharpness = uct.metrics.get_all_sharpness_metrics(std, verbose=False)
-            scoring_rule = {'tar_ll': ll.tar_ll.item()}
-
-            batch_metrics = [acc, calibration, sharpness, scoring_rule]
-            for i in range(len(batch_metrics)):
-                ravg, batch_metric = ravgs[i], batch_metrics[i]
-                for k in batch_metric.keys():
-                    ravg.update(k, batch_metric[k])
-
-    torch.manual_seed(time.time())
-    torch.cuda.manual_seed(time.time())
-
-    line = f'{args.expname}:{args.model}:{args.expid} {args.eval_kernel} '    
-    line += '\n'
-
-    for ravg in ravgs:
-        line += ravg.info()
-        line += '\n'
-
-    if logger is not None:
-        logger.info(line)
-
-    return line
 
 
 

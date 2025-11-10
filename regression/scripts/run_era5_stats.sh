@@ -1,1 +1,0 @@
-find  ~/output/flowNP/results/era5 -name 'train*.log'  | grep runall | xargs cat | grep _ll | grep -v lr | sed 's/:/ /g' | sed 's/all_ll.*tar_ll/tar_ll/' | sed 's/ctx_ll.*tar_ll/tar_ll/' | datamash -W -g 1 count 5 mean 5 sstdev 5

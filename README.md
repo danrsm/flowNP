@@ -4,7 +4,7 @@ A neural process model based on flow matching.
 
 <img width="50%" src="./flownp.png">
 
-## 🛠️ Installation
+## Installation
 
 This project uses **pixi** to manage its dependencies and create a fully reproducible environment.
 
@@ -21,7 +21,7 @@ git clone https://github.com/danrsm/flownp.git
 You'll need to install **pixi** on your system. You can generally do this with the following command (check the [official documentation](https://pixi.sh/) for platform-specific instructions):
 
 ```bash
-curl -Ls [https://pixi.sh/install.sh](https://pixi.sh/install.sh) | bash
+curl -Ls https://pixi.sh/install.sh | bash
 ```
 
 
@@ -61,7 +61,7 @@ Note that if you change something that affects the evaulation set you would need
 
 Evaluation is run as part of training but in order perform evluation on a pre-trained model run:
 ```
-python gp.py --mode=eval --expname=test --expid=1 --model=fnp
+pixi run python gp.py --mode=eval --expname=test --expid=1 --model=fnp
 ```
 Note that you have to specify `{expname}` and `{expid}` correctly so the model can load weights from `{output_path}/results/gp/{expname}/{kernel}{model}/{expid}` to evaluate.
 
@@ -116,7 +116,14 @@ If evaluating for the first time, evaluation data will be generated and saved in
 
 If you find this repo useful in your research, please consider citing our paper:
 ```
-
+@inproceedings{
+hamad2025flow,
+title={Flow Matching Neural Processes},
+author={Hussen Abu Hamad and Dan Rosenbaum},
+booktitle={The Thirty-ninth Annual Conference on Neural Information Processing Systems},
+year={2025},
+url={https://openreview.net/forum?id=R8n2h7hzqS}
+}
 ```
 
 ## Acknowledgement
