@@ -30,17 +30,19 @@ curl -Ls https://pixi.sh/install.sh | bash
 Once you are inside the project main directory, run:
 
 ```
-pixi insall
+pixi install
 ```
 
 ## Running the code
 
 First setup the data path and output path in `utils/paths.py`.
 
+If you run on a GPU platform , use the `-e gpu` flag, otherwise remove it. 
+
 For a quick start that trains and evaluates flowNP on 1D GP data (see below), run:
 
 ```
-pixi start
+pixi run -e gpu start
 ```
 
 ---
@@ -49,7 +51,7 @@ pixi start
 
 ### Training
 ```
-pixi run python gp.py --kernel=rbf --expname=test --expid=1 --model=fnp
+pixi run -e gpu python gp.py --kernel=rbf --expname=test --expid=1 --model=fnp
 ```
 The config of hyperparameters of each model is saved in `configs/gp`. If training for the first time, evaluation data will be generated and saved in `{output_path}/evalsets/gp`. Model weights and logs are saved in `{output_path}/results/gp/{model}/{expid}`.
 
@@ -61,7 +63,7 @@ Note that if you change something that affects the evaulation set you would need
 
 Evaluation is run as part of training but in order perform evluation on a pre-trained model run:
 ```
-pixi run python gp.py --mode=eval --expname=test --expid=1 --model=fnp
+pixi run -e gpu python gp.py --mode=eval --expname=test --expid=1 --model=fnp
 ```
 Note that you have to specify `{expname}` and `{expid}` correctly so the model can load weights from `{output_path}/results/gp/{expname}/{kernel}{model}/{expid}` to evaluate.
 
@@ -72,7 +74,7 @@ You can also evaluate on a different evaluation set then the one generated/used 
 ### Plotting 
 Plotting is performed as part of evaluation, but in order to perform only plotting, run:
 ```
-pixi run python gp.py --mode=plot --expname=test --expid=1 --model=fnp
+pixi run -e gpu python gp.py --mode=plot --expname=test --expid=1 --model=fnp
 ```
 
 
@@ -81,13 +83,13 @@ pixi run python gp.py --mode=plot --expname=test --expid=1 --model=fnp
 
 ### Training
 ```
-pixi run python emnist.py --mode=train --expid=default --model=fnp
+pixi run -e gpu python emnist.py --mode=train --expid=default --model=fnp
 ```
 If training for the first time, EMNIST training data will automatically downloaded and saved in `{datasets_path}/emnist`.
 
 ### Evaluation
 ```
-pixi run python emnist.py --mode=evaluate_all_metrics --expid=default --model=fnp
+pixi run -e gpu python emnist.py --mode=evaluate_all_metrics --expid=default --model=fnp
 ```
 If evaluating for the first time, evaluation data will be generated and saved in `{output_path}/evalsets/emnist`.
 
@@ -101,12 +103,12 @@ Download [img_align_celeba.zip](https://drive.google.com/drive/folders/0B7EVK8r0
 
 ### Training
 ```
-pixi run python celeba.py --mode=train --expid=default --model=fnp
+pixi run -e gpu python celeba.py --mode=train --expid=default --model=fnp
 ```
 
 ### Evaluation
 ```
-pixi run python celeba.py --mode=eval --expid=default --model=fnp
+pixi run -e gpu python celeba.py --mode=eval --expid=default --model=fnp
 ```
 If evaluating for the first time, evaluation data will be generated and saved in `{output_path}/evalsets/celeba`.
 
