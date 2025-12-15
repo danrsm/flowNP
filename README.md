@@ -1,6 +1,6 @@
 # Flow Matching Neural Processes
 
-A neural process model based on flow matching. Official implementation of the NeurIPS 2025 paper [[OpenReview](https://openreview.net/forum?id=R8n2h7hzqS)]
+A neural process model based on flow matching. Official implementation of the NeurIPS 2025 paper [[OpenReview](https://openreview.net/forum?id=R8n2h7hzqS)].
 
 <img width="50%" src="./flownp.png">
 
